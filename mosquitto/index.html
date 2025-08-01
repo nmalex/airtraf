@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>MQTT WebSocket Test</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    #log { border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: auto; }
+    input { width: 100%; margin-bottom: 8px; }
+  </style>
+</head>
+<body>
+
+  <h2>MQTT WebSocket Test</h2>
+
+  <label>Broker WebSocket URL:</label>
+  <input id="brokerUrl" value="ws://localhost:9001" />
+
+  <label>Message to send:</label>
+  <input id="message" value="Hello from browser!" />
+
+  <button onclick="connect()">Connect</button>
+  <button onclick="sendMessage()">Send to 'test/topic'</button>
+  <button onclick="disconnect()">Disconnect</button>
+
+  <!-- <h3>Log:</h3> -->
+  <!-- <div id="log"></div> -->
+
+  <h2>Image Preview:</h2>
+  <img id="jpegPreview" />
+
+  <script>
+    let client = null;
+    const topic = "test/topic";
+
+    function log(message) {
+      //const logDiv = document.getElementById("log");
+      //logDiv.innerHTML += message + "<br>";
+      //logDiv.scrollTop = logDiv.scrollHeight;
+      console.log(message);
+    }
+
+    function showJPEGFromBytes(byteArray) {
+      const blob = new Blob([byteArray], { type: 'image/jpeg' });
+      const url = URL.createObjectURL(blob);
+      document.getElementById('jpegPreview').src = url;
+    }
+
+    function connect() {
+      const url = document.getElementById("brokerUrl").value;
+      log("Connecting to " + url);
+
+      client = mqtt.connect(url);
+
+      client.on("connect", () => {
+        log("Connected");
+        client.subscribe(topic, err => {
+          if (err) {
+            log("Subscribe error: " + err.message);
+          } else {
+            log("Subscribed to '" + topic + "'");
+          }
+        });
+      });
+
+      client.on("message", (recvTopic, payload) => {
+        log("Message on '" + recvTopic);
+        // console.log(payload);
+        showJPEGFromBytes(payload);
+      });
+
+      client.on("error", (err) => {
+        log("Error: " + err.message);
+      });
+
+      client.on("close", () => {
+        log("Disconnected");
+      });
+    }
+
+    function sendMessage() {
+      if (!client || !client.connected) {
+        log("Not connected.");
+        return;
+      }
+
+      const message = document.getElementById("message").value;
+      client.publish(topic, message);
+      log("Sent: " + message);
+    }
+
+    function disconnect() {
+      if (client) {
+        client.end();
+        log("Disconnecting...");
+      }
+    }
+  </script>
+</body>
+</html>
