@@ -1,101 +1,149 @@
 <!DOCTYPE html>
 <html>
-<head>
-  <meta charset="UTF-8">
-  <title>MQTT WebSocket Test</title>
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
-  <style>
-    body { font-family: sans-serif; padding: 20px; }
-    #log { border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: auto; }
-    input { width: 100%; margin-bottom: 8px; }
-  </style>
-</head>
-<body>
+    <head>
+        <meta charset="UTF-8">
+        <title>MQTT WebSocket Test</title>
+        <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+        <style>
+            body { font-family: sans-serif; padding: 20px; }
+            #log { border: 1px solid #ccc; padding: 10px; height: 200px; overflow-y: auto; }
+            input { width: 100%; margin-bottom: 8px; }
+        </style>
+    </head>
+    <body>
+        <h2>MQTT WebSocket Test</h2>
+        <label>Broker WebSocket URL:</label>
+        <input id="brokerUrl" value="ws://localhost:9001" />
+        <label>Message to send:</label>
+        <input id="message" value="Hello from browser!" />
+        <button onclick="connect()">Connect</button>
+        <button onclick="sendMessage()">Send to 'test/topic'</button>
+        <button onclick="disconnect()">Disconnect</button>
+        <!-- <h3>Log:</h3> -->
+        <!-- <div id="log"></div> -->
+        <!-- <h2>Image Preview:</h2> -->
+        <img id="jpegPreview" />
+        
+        <script>
+            // CRC32 lookup table generator (once)
+            const CRC32_TABLE = (() => {
+            	const table = new Uint32Array(256);
+            	for (let i = 0; i < 256; i++) {
+            		let c = i;
+            		for (let j = 0; j < 8; j++) {
+            			c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+            		}
+            		table[i] = c >>> 0;
+            	}
+            	return table;
+            })();
 
-  <h2>MQTT WebSocket Test</h2>
+            // Function to compute CRC32 of Uint8Array
+            function crc32(uint8Array) {
+            	let crc = 0xFFFFFFFF;
+            	for (let i = 0; i < uint8Array.length; i++) {
+            		const byte = uint8Array[i];
+            		crc = CRC32_TABLE[(crc ^ byte) & 0xFF] ^ (crc >>> 8);
+            	}
+            	return (crc ^ 0xFFFFFFFF) >>> 0; // Convert to unsigned
+            }
 
-  <label>Broker WebSocket URL:</label>
-  <input id="brokerUrl" value="ws://localhost:9001" />
+            // Example usage
+            // const data = new Uint8Array([0x01, 0x02, 0x03, 0x04]);
+            // const checksum = crc32(data);
+            // console.log("CRC32 (unsigned):", checksum);
+            // console.log("CRC32 (hex):", checksum.toString(16).padStart(8, '0'));
 
-  <label>Message to send:</label>
-  <input id="message" value="Hello from browser!" />
+            let client = null;
 
-  <button onclick="connect()">Connect</button>
-  <button onclick="sendMessage()">Send to 'test/topic'</button>
-  <button onclick="disconnect()">Disconnect</button>
+            const topicJpeg = "test/livemap/jpeg";
+            const topicChecksum = "test/livemap/jpeg/crc32";
 
-  <!-- <h3>Log:</h3> -->
-  <!-- <div id="log"></div> -->
+            function log(message) {
+            	//const logDiv = document.getElementById("log");
+            	//logDiv.innerHTML += message + "<br>";
+            	//logDiv.scrollTop = logDiv.scrollHeight;
+            	console.log(message);
+            }
 
-  <h2>Image Preview:</h2>
-  <img id="jpegPreview" />
+            function showJPEGFromBytes(byteArray) {
+            	const blob = new Blob([byteArray], {
+            		type: 'image/jpeg'
+            	});
+            	const url = URL.createObjectURL(blob);
+            	document.getElementById('jpegPreview').src = url;
+            }
 
-  <script>
-    let client = null;
-    const topic = "test/topic";
+            function connect() {
+            	const url = document.getElementById("brokerUrl").value;
+            	log("Connecting to " + url);
 
-    function log(message) {
-      //const logDiv = document.getElementById("log");
-      //logDiv.innerHTML += message + "<br>";
-      //logDiv.scrollTop = logDiv.scrollHeight;
-      console.log(message);
-    }
+            	client = mqtt.connect(url);
 
-    function showJPEGFromBytes(byteArray) {
-      const blob = new Blob([byteArray], { type: 'image/jpeg' });
-      const url = URL.createObjectURL(blob);
-      document.getElementById('jpegPreview').src = url;
-    }
+            	client.on("connect", () => {
+            		log("Connected");
 
-    function connect() {
-      const url = document.getElementById("brokerUrl").value;
-      log("Connecting to " + url);
+            		client.subscribe(topicChecksum, err => {
+            			if (err) {
+            				log("Subscribe error: " + err.message);
+            			} else {
+            				log("Subscribed to '" + topicChecksum + "'");
+            			}
+            		});
 
-      client = mqtt.connect(url);
+            		client.subscribe(topicJpeg, err => {
+            			if (err) {
+            				log("Subscribe error: " + err.message);
+            			} else {
+            				log("Subscribed to '" + topicJpeg + "'");
+            			}
+            		});
 
-      client.on("connect", () => {
-        log("Connected");
-        client.subscribe(topic, err => {
-          if (err) {
-            log("Subscribe error: " + err.message);
-          } else {
-            log("Subscribed to '" + topic + "'");
-          }
-        });
-      });
+            	});
 
-      client.on("message", (recvTopic, payload) => {
-        log("Message on '" + recvTopic);
-        // console.log(payload);
-        showJPEGFromBytes(payload);
-      });
+            	client.on("message", (recvTopic, payload) => {
+            		log("Message on '" + recvTopic);
+            		if (recvTopic == topicChecksum) {
+            			const json = JSON.parse(payload.toString());
+                  window.__nextJpegChecksum = json.crc32;
+            			//console.log(json);
+            		} else {
+                  const checksum = crc32(payload);
+                  //console.log("CRC32 (unsigned): actual, expected: ", checksum, window.__nextJpegChecksum);
 
-      client.on("error", (err) => {
-        log("Error: " + err.message);
-      });
+            			//console.log(payload);
 
-      client.on("close", () => {
-        log("Disconnected");
-      });
-    }
+                  showJPEGFromBytes(payload);
+            		}
+            		
+            	});
 
-    function sendMessage() {
-      if (!client || !client.connected) {
-        log("Not connected.");
-        return;
-      }
+            	client.on("error", (err) => {
+            		log("Error: " + err.message);
+            	});
 
-      const message = document.getElementById("message").value;
-      client.publish(topic, message);
-      log("Sent: " + message);
-    }
+            	client.on("close", () => {
+            		log("Disconnected");
+            	});
+            }
 
-    function disconnect() {
-      if (client) {
-        client.end();
-        log("Disconnecting...");
-      }
-    }
-  </script>
-</body>
+            function sendMessage() {
+            	if (!client || !client.connected) {
+            		log("Not connected.");
+            		return;
+            	}
+
+            	const message = document.getElementById("message").value;
+            	client.publish(topic, message);
+            	log("Sent: " + message);
+            }
+
+            function disconnect() {
+            	if (client) {
+            		client.end();
+            		log("Disconnecting...");
+            	}
+            }
+        </script>
+    </body>
 </html>
